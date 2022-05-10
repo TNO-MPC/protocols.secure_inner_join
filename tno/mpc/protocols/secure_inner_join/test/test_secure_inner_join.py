@@ -3,340 +3,456 @@ Tests that can be ran using pytest to test the secure inner join functionality
 """
 
 import asyncio
-from typing import Tuple
+from hashlib import blake2b
+from typing import Callable, Tuple, cast
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from tno.mpc.communication import Pool
-from tno.mpc.communication.test import (  # pylint: disable=unused-import
-    fixture_pool_http_3p,
-)
 
 from tno.mpc.protocols.secure_inner_join import DatabaseOwner, Helper
+from tno.mpc.protocols.secure_inner_join.test.test_fixtures import (  # pylint: disable=unused-import
+    compute_regular_intersection,
+    event_loop,
+    fixture_alice,
+    fixture_bob,
+    fixture_charlie,
+    fixture_dave,
+    fixture_henri,
+    fixture_parties,
+    fixture_pool_http,
+    fixture_pool_http_3p,
+    fixture_pool_http_4p,
+    fixture_pool_http_5p,
+)
 
+NONE = ((None, None, None, None),)
 
-@pytest.fixture(name="alice")
-@pytest.mark.asyncio
-async def fixture_alice(
-    pool_http_3p: Tuple[Pool, Pool, Pool], feature_names_alice: Tuple[str, ...]
-) -> DatabaseOwner:
-    """
-    Constructs player Alice
+data_alice: npt.NDArray[np.object_] = np.array(
+    [
+        ["Thomas", 2, 12.5],
+        ["Michiel", -1, 31.232],
+        ["Bart", 3, 23.11],
+        ["Nicole", 1, 8.3],
+        ["Robert", -5, 12.4],
+        ["Alex", -7, 3.5],
+        ["Daniel", 23, 1.15],
+    ],
+    dtype=object,
+)
+data_bob: npt.NDArray[np.object_] = np.array(
+    [
+        ["Thomas", 5, 10],
+        ["Victor", 231, 2],
+        ["Michiel", 40, 8],
+        ["Tariq", 42, 6],
+        ["Alex", 133, 5],
+        ["Daniel", 1000, 11],
+    ],
+    dtype=object,
+)
+data_charlie: npt.NDArray[np.object_] = np.array(
+    [
+        ["Thomas", 3, 1],
+        ["Victor", 4.5, 2],
+        ["Bart", 100, 1],
+        ["Tariq", 22, 0],
+        ["Alex", -33, 6],
+        ["Daniel", -1.2, 100],
+    ],
+    dtype=object,
+)
+data_dave: npt.NDArray[np.object_] = np.array(
+    [
+        ["Thomas", 5, 10],
+        ["Bart", 30, 1],
+        ["Tariq", 42, 6],
+        ["Daniel", 1000, 11],
+        ["Alessandro", -1000, -10],
+    ],
+    dtype=object,
+)
 
-    :param pool_http_3p: collection of (three) communication pools
-    :param feature_names_alice: feature names of Alice's data
-    :return: an initialized database owner
-    """
-    data = np.array(
-        [
-            ["Thomas", 2, 12.5],
-            ["Michiel", -1, 31.232],
-            ["Bart", 3, 23.11],
-            ["Nicole", 1, 8.3],
-        ],
-        dtype=object,
-    )
-    return DatabaseOwner(
-        identifier=list(pool_http_3p[2].pool_handlers)[0],
-        data_parties=list(pool_http_3p[2].pool_handlers),
-        helper=list(pool_http_3p[1].pool_handlers)[1],
-        data=data,
-        feature_names=feature_names_alice,
-        pool=pool_http_3p[0],
-    )
-
-
-@pytest.fixture(name="bob")
-@pytest.mark.asyncio
-async def fixture_bob(
-    pool_http_3p: Tuple[Pool, Pool, Pool], feature_names_bob: Tuple[str, ...]
-) -> DatabaseOwner:
-    """
-    Constructs player Bob
-
-    :param pool_http_3p: collection of (three) communication pools
-    :param feature_names_bob: feature names of Bob's data
-    :return: an initialized database owner
-    """
-    data = np.array(
-        [
-            ["Thomas", 5, 10],
-            ["Victor", 231, 2],
-            ["Bart", 30, 1],
-            ["Michiel", 40, 8],
-            ["Tariq", 42, 6],
-        ],
-        dtype=object,
-    )
-    return DatabaseOwner(
-        identifier=list(pool_http_3p[2].pool_handlers)[1],
-        data_parties=list(pool_http_3p[2].pool_handlers),
-        helper=list(pool_http_3p[1].pool_handlers)[1],
-        data=data,
-        feature_names=feature_names_bob,
-        pool=pool_http_3p[1],
-    )
-
-
-@pytest.fixture(name="henri")
-@pytest.mark.asyncio
-async def fixture_henri(pool_http_3p: Tuple[Pool, Pool, Pool]) -> Helper:
-    """
-    Constructs player henri
-
-    :param pool_http_3p: collection of (three) communication pools
-    :return: an initialized helper party
-    """
-    return Helper(
-        identifier=list(pool_http_3p[1].pool_handlers)[1],
-        data_parties=list(pool_http_3p[2].pool_handlers),
-        helper=list(pool_http_3p[1].pool_handlers)[1],
-        pool=pool_http_3p[2],
-    )
+intersection_two_party = compute_regular_intersection((data_alice, data_bob))
+intersection_three_party = compute_regular_intersection(
+    (data_alice, data_bob, data_charlie)
+)
+intersection_four_party = compute_regular_intersection(
+    (data_alice, data_bob, data_charlie, data_dave)
+)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "feature_names_alice,feature_names_bob",
+    "feature_names_alice,feature_names_bob,feature_names_charlie,feature_names_dave",
     [
-        (("feature_alice_1", "feature_alice_2"), ("feature_bob_1", "feature_bob_2")),
-        (("feature_alice_1", "feature_alice_2"), ()),
-        ((), ("feature_bob_1", "feature_bob_2")),
-        ((), ()),
+        (
+            ("feature_alice_1", "feature_alice_2"),
+            ("feature_bob_1", "feature_bob_2"),
+            ("feature_charlie_1", "feature_charlie_2"),
+            ("feature_dave_1", "feature_dave_2"),
+        ),
+        (
+            ("feature_alice_1", "feature_alice_2"),
+            ("feature_bob_1", "feature_bob_2"),
+            ("feature_charlie_1", "feature_charlie_2"),
+            (),
+        ),
+        (("feature_alice_1", "feature_alice_2"), (), (), ()),
+        ((), (), (), ()),
     ],
 )
+@pytest.mark.parametrize(
+    "data_alice,data_bob,data_charlie,data_dave",
+    (((data_alice[:, 1:], data_bob[:, 1:], data_charlie[:, 1:], data_dave[:, 1:]),)),
+)
+@pytest.mark.parametrize(
+    "identifiers_alice,identifiers_bob,identifiers_charlie,identifiers_dave",
+    (((data_alice[:, 0], data_bob[:, 0], data_charlie[:, 0], data_dave[:, 0]),)),
+)
+@pytest.mark.parametrize(
+    "identifiers_phonetic_alice,identifiers_phonetic_bob,identifiers_phonetic_charlie,identifiers_phonetic_dave",
+    NONE,
+)
+@pytest.mark.parametrize(
+    "identifiers_phonetic_exact_alice,identifiers_phonetic_exact_bob,identifiers_phonetic_exact_charlie,identifiers_phonetic_exact_dave",
+    NONE,
+)
+@pytest.mark.parametrize(
+    "identifier_date_alice,identifier_date_bob,identifier_date_charlie,identifier_date_dave",
+    NONE,
+)
+@pytest.mark.parametrize(
+    "identifier_zip6_alice,identifier_zip6_bob,identifier_zip6_charlie,identifier_zip6_dave",
+    NONE,
+)
 async def test_secure_inner_join(
-    alice: DatabaseOwner, bob: DatabaseOwner, henri: Helper
+    parties: Tuple[Tuple[DatabaseOwner, ...], Helper]
 ) -> None:
     """
     Tests entire protocol
 
-    :param alice: first database owner
-    :param bob: second database owner
-    :param henri: helper party
+    :param parties: all parties involved in this secure inner join iteration
     """
-    await asyncio.gather(
-        *[alice.run_protocol(), bob.run_protocol(), henri.run_protocol()]
+    all_parties = parties[0] + (parties[1],)
+    await asyncio.gather(*[party.run_protocol() for party in all_parties])
+    if len(parties[0]) == 2:
+        correct_outcome = intersection_two_party
+    elif len(parties[0]) == 3:
+        correct_outcome = intersection_three_party
+    else:  # len(parties[0]) == 4
+        correct_outcome = intersection_four_party
+
+    actual_outcome = cast(
+        npt.NDArray[np.object_], sum(map(lambda party: party.shares, parties[0]))
     )
-    correct_outcome = np.array(
-        [
-            [
-                2,
-                12.5,
-                5,
-                10,
-            ],
-            [
-                -1,
-                31.232,
-                40,
-                8,
-            ],
-            [
-                3,
-                23.11,
-                30,
-                1,
-            ],
-        ]
-    )
-    actual_outcome = alice.shares + bob.shares
     np.testing.assert_array_equal(
         actual_outcome[np.argsort(actual_outcome[:, 0]), :],
-        correct_outcome[np.argsort(correct_outcome[:, 0]), :],
+        correct_outcome[np.argsort(correct_outcome[:, 1]), 1:],
     )
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "feature_names_alice,feature_names_bob",
+    "feature_names_alice,feature_names_bob,feature_names_charlie,feature_names_dave",
     [
-        (("feature_alice_1", "feature_alice_2"), ("feature_bob_1", "feature_bob_2")),
-        (("feature_alice_1", "feature_alice_2"), ()),
-        ((), ("feature_bob_1", "feature_bob_2")),
-        ((), ()),
+        (
+            ("feature_alice_1", "feature_alice_2"),
+            ("feature_bob_1", "feature_bob_2"),
+            ("feature_charlie_1", "feature_charlie_2"),
+            ("feature_dave_1", "feature_dave_2"),
+        ),
+        (
+            ("feature_alice_1", "feature_alice_2"),
+            ("feature_bob_1", "feature_bob_2"),
+            ("feature_charlie_1", "feature_charlie_2"),
+            (),
+        ),
+        (("feature_alice_1", "feature_alice_2"), (), (), ()),
+        ((), (), (), ()),
     ],
 )
-async def test_features_send_receive(alice: DatabaseOwner, bob: DatabaseOwner) -> None:
+@pytest.mark.parametrize(
+    "data_alice,data_bob,data_charlie,data_dave",
+    (((data_alice[:, 1:], data_bob[:, 1:], data_charlie[:, 1:], data_dave[:, 1:]),)),
+)
+@pytest.mark.parametrize(
+    "identifiers_alice,identifiers_bob,identifiers_charlie,identifiers_dave",
+    (((data_alice[:, 0], data_bob[:, 0], data_charlie[:, 0], data_dave[:, 0]),)),
+)
+@pytest.mark.parametrize(
+    "identifiers_phonetic_alice,identifiers_phonetic_bob,identifiers_phonetic_charlie,identifiers_phonetic_dave",
+    NONE,
+)
+@pytest.mark.parametrize(
+    "identifiers_phonetic_exact_alice,identifiers_phonetic_exact_bob,identifiers_phonetic_exact_charlie,identifiers_phonetic_exact_dave",
+    NONE,
+)
+@pytest.mark.parametrize(
+    "identifier_date_alice,identifier_date_bob,identifier_date_charlie,identifier_date_dave",
+    NONE,
+)
+@pytest.mark.parametrize(
+    "identifier_zip6_alice,identifier_zip6_bob,identifier_zip6_charlie,identifier_zip6_dave",
+    NONE,
+)
+async def test_features_send_receive(
+    parties: Tuple[Tuple[DatabaseOwner, ...], Helper]
+) -> None:
     """
     Tests sending and receiving of feature names
 
-    :param alice: first database owner
-    :param bob: second database owner
+    :param parties: all parties involved in this secure inner join iteration
     """
     # pylint: disable=protected-access
     await asyncio.gather(
-        *[
-            alice.send_feature_names(),
-            alice.receive_feature_names(),
-            bob.send_feature_names(),
-            bob.receive_feature_names(),
-        ]
+        *(
+            [party.send_feature_names_to_all() for party in parties[0]]
+            + [party.receive_all_feature_names() for party in parties[0]]
+        )
     )
-    assert alice._received_feature_names
-    assert bob._received_feature_names
-    assert alice.feature_names == bob.feature_names
+    for party in parties[0]:
+        assert party._received_feature_names
+        assert parties[0][0].feature_names == party.feature_names
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "feature_names_alice,feature_names_bob",
+    "data_parties_alice",
     [
-        ((), ()),
+        ("local1", "local2", "local3", "local4", "local5", "local6"),
+        ("local1",),
+        ("alice", "bob"),
     ],
 )
+@pytest.mark.asyncio
+async def test_verify_data_parties_incorrect(
+    pool_http: Tuple[Pool, ...],
+    data_parties_alice: Tuple[str, ...],
+) -> None:
+    """
+    Test the verification of the data_parties, when the number of data_parties is too small or too large.
+    This should raise an error either on construction or in verifying by sending.
+
+    :param pool_http: collection of (at least three) communication pools
+    :param data_parties_alice: Tuple containing the data parties that Alice learns.
+    """
+    henri = Helper(
+        identifier=list(pool_http[1].pool_handlers)[0],
+        data_parties=list(pool_http[0].pool_handlers),
+        helper=list(pool_http[1].pool_handlers)[0],
+        pool=pool_http[0],
+    )
+    with pytest.raises(ValueError):
+        alice = DatabaseOwner(
+            identifier=list(pool_http[0].pool_handlers)[0],
+            data_parties=data_parties_alice,
+            helper=list(pool_http[1].pool_handlers)[0],
+            identifiers=np.zeros(5, dtype=object),
+            data=np.zeros((5, 5), dtype=object),
+            feature_names=tuple(),
+            pool=pool_http[1],
+        )
+        await asyncio.gather(
+            alice.receive_and_verify_data_parties(), henri.send_data_parties()
+        )
+
+
+@pytest.mark.asyncio
+async def test_verify_data_parties_incorrect_sort(
+    pool_http: Tuple[Pool, ...],
+) -> None:
+    """
+    Test that data parties get sorted correctly, if they are not initially.
+
+    :param pool_http: collection of (at least three) communication pools
+    """
+    henri = Helper(
+        identifier=list(pool_http[1].pool_handlers)[0],
+        data_parties=list(pool_http[0].pool_handlers),
+        helper=list(pool_http[1].pool_handlers)[0],
+        pool=pool_http[0],
+    )
+    data_parties_alice = list(pool_http[0].pool_handlers)
+    data_parties_alice.append(data_parties_alice.pop(0))
+    alice = DatabaseOwner(
+        identifier=list(pool_http[0].pool_handlers)[0],
+        data_parties=data_parties_alice,
+        helper=list(pool_http[1].pool_handlers)[0],
+        identifiers=np.zeros(5, dtype=object),
+        data=np.zeros((5, 5), dtype=object),
+        feature_names=tuple(),
+        pool=pool_http[1],
+    )
+    await asyncio.gather(
+        alice.receive_and_verify_data_parties(), henri.send_data_parties()
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "feature_names_alice,feature_names_bob,feature_names_charlie,feature_names_dave",
+    [
+        ((), (), (), ()),
+    ],
+)
+@pytest.mark.parametrize(
+    "data_alice,data_bob,data_charlie,data_dave",
+    (((data_alice[:, 1:], data_bob[:, 1:], data_charlie[:, 1:], data_dave[:, 1:]),)),
+)
+@pytest.mark.parametrize(
+    "identifiers_alice,identifiers_bob,identifiers_charlie,identifiers_dave",
+    (((data_alice[:, 0], data_bob[:, 0], data_charlie[:, 0], data_dave[:, 0]),)),
+)
+@pytest.mark.parametrize(
+    "identifiers_phonetic_alice,identifiers_phonetic_bob,identifiers_phonetic_charlie,identifiers_phonetic_dave",
+    NONE,
+)
+@pytest.mark.parametrize(
+    "identifiers_phonetic_exact_alice,identifiers_phonetic_exact_bob,identifiers_phonetic_exact_charlie,identifiers_phonetic_exact_dave",
+    NONE,
+)
+@pytest.mark.parametrize(
+    "identifier_date_alice,identifier_date_bob,identifier_date_charlie,identifier_date_dave",
+    NONE,
+)
+@pytest.mark.parametrize(
+    "identifier_zip6_alice,identifier_zip6_bob,identifier_zip6_charlie,identifier_zip6_dave",
+    NONE,
+)
 async def test_randomness_send_receive(
-    alice: DatabaseOwner, bob: DatabaseOwner
+    parties: Tuple[Tuple[DatabaseOwner, ...], Helper]
 ) -> None:
     """
     Tests sending and receiving of randomness
 
-    :param alice: first database owner
-    :param bob: second database owner
+    :param parties: all parties involved in this secure inner join iteration
     """
     await asyncio.gather(
-        *[
-            alice.send_randomness(),
-            alice.receive_randomness(),
-            bob.send_randomness(),
-            bob.receive_randomness(),
-        ]
+        *(
+            [party.send_randomness_to_all() for party in parties[0]]
+            + [party.receive_all_randomness() for party in parties[0]]
+        )
     )
-    assert alice.shared_randomness == bob.shared_randomness
+    for party in parties[0]:
+        assert party.shared_randomness
+        assert parties[0][0].shared_randomness == party.shared_randomness
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "feature_names_alice,feature_names_bob",
+    "feature_names_alice,feature_names_bob,feature_names_charlie,feature_names_dave",
     [
-        ((), ()),
+        ((), (), (), ()),
     ],
 )
-async def test_paillier_send_receive_single_direction_bob(
-    alice: DatabaseOwner, bob: DatabaseOwner
+@pytest.mark.parametrize(
+    "data_alice,data_bob,data_charlie,data_dave",
+    (((data_alice[:, 1:], data_bob[:, 1:], data_charlie[:, 1:], data_dave[:, 1:]),)),
+)
+@pytest.mark.parametrize(
+    "identifiers_alice,identifiers_bob,identifiers_charlie,identifiers_dave",
+    (((data_alice[:, 0], data_bob[:, 0], data_charlie[:, 0], data_dave[:, 0]),)),
+)
+@pytest.mark.parametrize(
+    "identifiers_phonetic_alice,identifiers_phonetic_bob,identifiers_phonetic_charlie,identifiers_phonetic_dave",
+    NONE,
+)
+@pytest.mark.parametrize(
+    "identifiers_phonetic_exact_alice,identifiers_phonetic_exact_bob,identifiers_phonetic_exact_charlie,identifiers_phonetic_exact_dave",
+    NONE,
+)
+@pytest.mark.parametrize(
+    "identifier_date_alice,identifier_date_bob,identifier_date_charlie,identifier_date_dave",
+    NONE,
+)
+@pytest.mark.parametrize(
+    "identifier_zip6_alice,identifier_zip6_bob,identifier_zip6_charlie,identifier_zip6_dave",
+    NONE,
+)
+async def test_paillier_send_receive(
+    parties: Tuple[Tuple[DatabaseOwner, ...], Helper]
 ) -> None:
     """
-    Tests sending and receiving of paillier schemes to Bob
+    Tests sending and receiving of paillier schemes
 
-    :param alice: first database owner
-    :param bob: second database owner
+    :param parties: all parties involved in this secure inner join iteration
     """
-    await asyncio.gather(*[alice.send_paillier_scheme(), bob.receive_paillier_scheme()])
-    assert (
-        alice.paillier_scheme.public_key.n == bob.received_paillier_scheme.public_key.n
+    await asyncio.gather(
+        *(
+            [party.send_paillier_scheme_to_all() for party in parties[0]]
+            + [party.receive_all_paillier_schemes() for party in parties[0]]
+        )
     )
-    assert alice.paillier_scheme.precision == bob.received_paillier_scheme.precision
+    for party1 in parties[0]:
+        for party2 in parties[0]:
+            if party1 == party2:
+                continue
+            assert (
+                party1.paillier_scheme.public_key.n
+                == party2.received_paillier_schemes[party1.identifier].public_key.n
+            )
+            assert (
+                party1.paillier_scheme.precision
+                == party2.received_paillier_schemes[party1.identifier].precision
+            )
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "feature_names_alice,feature_names_bob",
+    "data_alice,data_bob,data_charlie,data_dave",
+    (((data_alice[:, 1:], data_bob[:, 1:], data_charlie[:, 1:], data_dave[:, 1:]),)),
+)
+@pytest.mark.parametrize(
+    "identifiers_alice,identifiers_bob,identifiers_charlie,identifiers_dave",
+    (((data_alice[:, 0], data_bob[:, 0], data_charlie[:, 0], data_dave[:, 0]),)),
+)
+@pytest.mark.parametrize(
+    "feature_names_alice,feature_names_bob,feature_names_charlie,feature_names_dave",
     [
-        ((), ()),
+        ((), (), (), ()),
     ],
 )
-async def test_paillier_send_receive_single_direction_alice(
-    alice: DatabaseOwner, bob: DatabaseOwner
+@pytest.mark.parametrize(
+    "identifiers_phonetic_alice,identifiers_phonetic_bob,identifiers_phonetic_charlie,identifiers_phonetic_dave",
+    NONE,
+)
+@pytest.mark.parametrize(
+    "identifiers_phonetic_exact_alice,identifiers_phonetic_exact_bob,identifiers_phonetic_exact_charlie,identifiers_phonetic_exact_dave",
+    NONE,
+)
+@pytest.mark.parametrize(
+    "identifier_date_alice,identifier_date_bob,identifier_date_charlie,identifier_date_dave",
+    NONE,
+)
+@pytest.mark.parametrize(
+    "identifier_zip6_alice,identifier_zip6_bob,identifier_zip6_charlie,identifier_zip6_dave",
+    NONE,
+)
+async def test_hash_functions(
+    parties: Tuple[Tuple[DatabaseOwner, ...], Helper]
 ) -> None:
     """
-    Tests sending and receiving of paillier schemes to Alice
+    Test to see if setting the hash function behaves as expected.
 
-    :param alice: first database owner
-    :param bob: second database owner
+    :param parties: all parties involved in this secure inner join iteration
     """
-    await asyncio.gather(*[bob.send_paillier_scheme(), alice.receive_paillier_scheme()])
-    assert (
-        bob.paillier_scheme.public_key.n == alice.received_paillier_scheme.public_key.n
+    await asyncio.gather(
+        *(
+            [party.send_randomness_to_all() for party in parties[0]]
+            + [party.receive_all_randomness() for party in parties[0]]
+        )
     )
-    assert bob.paillier_scheme.precision == alice.received_paillier_scheme.precision
 
+    party = parties[0][0]
+    out_default_hash = party._hash_entry("heyhoi")
+    again_default_hash = party._hash_entry("heyhoi")
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "feature_names_alice,feature_names_bob",
-    [
-        (("feature_alice_1", "feature_alice_2"), ("feature_bob_1", "feature_bob_2")),
-        (("feature_alice_1", "feature_alice_2"), ()),
-        ((), ("feature_bob_1", "feature_bob_2")),
-        ((), ()),
-    ],
-)
-async def test_features_send_receive_single_direction_bob(
-    alice: DatabaseOwner, bob: DatabaseOwner
-) -> None:
-    """
-    Tests sending and receiving of feature names to Bob
+    party.hash_fun = cast(Callable[[bytes], bytes], lambda x: blake2b(x).digest())
 
-    :param alice: first database owner
-    :param bob: second database owner
-    """
-    # pylint: disable=protected-access
-    await asyncio.gather(*[alice.send_feature_names(), bob.receive_feature_names()])
-    assert alice._own_feature_names == bob._received_feature_names
+    out_blake2b = party._hash_entry("heyhoi")
 
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "feature_names_alice,feature_names_bob",
-    [
-        (("feature_alice_1", "feature_alice_2"), ("feature_bob_1", "feature_bob_2")),
-        (("feature_alice_1", "feature_alice_2"), ()),
-        ((), ("feature_bob_1", "feature_bob_2")),
-        ((), ()),
-    ],
-)
-async def test_features_send_receive_single_direction_alice(
-    alice: DatabaseOwner, bob: DatabaseOwner
-) -> None:
-    """
-    Tests sending and receiving of feature names to Alice
-
-    :param alice: first database owner
-    :param bob: second database owner
-    """
-    # pylint: disable=protected-access
-    await asyncio.gather(*[bob.send_feature_names(), alice.receive_feature_names()])
-    assert bob._own_feature_names == alice._received_feature_names
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "feature_names_alice,feature_names_bob",
-    [
-        ((), ()),
-    ],
-)
-async def test_randomness_send_receive_single_direction_bob(
-    alice: DatabaseOwner, bob: DatabaseOwner
-) -> None:
-    """
-    Tests sending and receiving of randomness to Bob
-
-    :param alice: first database owner
-    :param bob: second database owner
-    """
-    # pylint: disable=protected-access
-    await asyncio.gather(*[alice.send_randomness(), bob.receive_randomness()])
-    assert alice._own_randomness == bob._received_randomness
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "feature_names_alice,feature_names_bob",
-    [
-        ((), ()),
-    ],
-)
-async def test_randomness_send_receive_single_direction_alice(
-    alice: DatabaseOwner, bob: DatabaseOwner
-) -> None:
-    """
-    Tests sending and receiving of randomness to Alice
-
-    :param alice: first database owner
-    :param bob: second database owner
-    """
-    # pylint: disable=protected-access
-    await asyncio.gather(*[bob.send_randomness(), alice.receive_randomness()])
-    assert bob._own_randomness == alice._received_randomness
+    assert out_default_hash == again_default_hash
+    assert out_default_hash != out_blake2b

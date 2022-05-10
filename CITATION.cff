@@ -18,6 +18,6 @@ contact:
 repository-code: https://github.com/TNO-MPC/protocols.secure_inner_join
 repository-artifact: https://pypi.org/project/tno.mpc.protocols.secure_inner_join
 title: TNO MPC Lab - Protocols - Secure Inner Join
-version: v0.3.4
-date-released: 2021-09-10
+version: v1.0.0
+date-released: 2022-05-11
 

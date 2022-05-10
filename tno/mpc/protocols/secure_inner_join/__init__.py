@@ -8,4 +8,4 @@ Initialization of the secure inner join package
 from .database_owner import DatabaseOwner as DatabaseOwner
 from .helper import Helper as Helper
 
-__version__ = "0.3.4"
+__version__ = "1.0.0"

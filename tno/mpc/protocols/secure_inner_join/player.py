@@ -2,6 +2,7 @@
 Code for the abstract player class to implement parties
 performing secure set intersection
 """
+
 import datetime
 import logging
 from abc import ABC, abstractmethod
@@ -19,23 +20,24 @@ class Player(ABC):
         self,
         identifier: str,
         pool: Pool,
-        data_parties: Tuple[str, str] = ("alice", "bob"),
+        data_parties: Tuple[str, ...] = ("alice", "bob"),
         helper: str = "henri",
     ) -> None:
         """
         Initializes the database owner
 
-        :param identifier: identifier of the player, either Alice or Bob or Henri
+        :param identifier: identifier of the player
         :param pool: instance of tno.mpc.communication.Pool
         :param data_parties: identifiers of the data_parties
         :param helper: identifier of the helper
         """
-        # Initialise
+        # Initialise attributes
         self._identifier = identifier
-        self._data_parties = data_parties
+        self._data_parties = tuple(sorted(data_parties))
         self._helper = helper
-        self.pool = pool
+        self._pool = pool
 
+        # Initialise logger
         self._logger = self.create_logger(self._identifier)
         self._logger.info(
             "Starting execution, time stamp:"
@@ -43,29 +45,50 @@ class Player(ABC):
         )
 
     @property
-    def data_parties(self) -> Tuple[str, str]:
+    def data_parties(self) -> Tuple[str, ...]:
         """
-        The identifiers of the data parties
+        The identifiers of all data parties (sorted alphabetically, and the same for each player).
 
-        :return: the identifiers of the data parties
+        :return: A tuple containing the identifiers of all data parties.
         """
         return self._data_parties
 
     @property
+    def data_parties_and_addresses(
+        self,
+    ) -> Tuple[Tuple[str, Optional[str], Optional[int]], ...]:
+        """
+        Tuples containing (identifier, address, port) of all data parties (sorted alphabetically on identifier, and the
+        same for each player).
+
+        :return: A tuple containing the identifiers, addresses, and ports of all data parties.
+        """
+        return tuple(
+            (
+                party,
+                self._pool.pool_handlers[party].addr,
+                self._pool.pool_handlers[party].port,
+            )
+            if party != self.identifier
+            else (party, None, None)
+            for party in self.data_parties
+        )
+
+    @property
     def helper(self) -> str:
         """
-        The identifier of the helper player
+        The identifier of the helper party.
 
-        :return: the identifier of the helper
+        :return: The identifier of the helper.
         """
         return self._helper
 
     @property
     def identifier(self) -> str:
         """
-        The identifier of this player
+        The identifier of this party.
 
-        :return: the identifier
+        :return: The identifier of this party.
         """
         return self._identifier
 
@@ -73,29 +96,10 @@ class Player(ABC):
     @abstractmethod
     def intersection_size(self) -> int:
         """
-        Should return the size of the intersection between
-        the identifier columns of the data parties
+        Returns the size of the intersection of the identifier columns of all data parties.
 
-        :return: the intersection size
+        :return: The intersection size.
         """
-
-    @property
-    def party_alice(self) -> str:
-        """
-        The identifier that is used to identify the first party (Alice)
-
-        :return: the identifier of the first party
-        """
-        return self.data_parties[0]
-
-    @property
-    def party_bob(self) -> str:
-        """
-        The identifier that is used to identify the second party (Bob)
-
-        :return: the identifier of the second party
-        """
-        return self.data_parties[1]
 
     @staticmethod
     def create_logger(name: str) -> logging.Logger:
@@ -114,28 +118,29 @@ class Player(ABC):
 
     async def receive_message(self, party: str, msg_id: Optional[str] = None) -> Any:
         """
-        Receive a message from party with msg_id
+        Receive a message from party with the given msg_id, if no msg_id is given the message with the lowest numerical
+        id is selected.
 
-        :param party: party to receive message from
-        :param msg_id: optional identifier for the message
-        :return: the received message contents
+        :param party: Identifier of the party to receive message from.
+        :param msg_id: Optional identifier for the message.
+        :return: The received message contents.
         """
-        return await self.pool.recv(party, msg_id=msg_id)
+        return await self._pool.recv(party, msg_id=msg_id)
 
     @abstractmethod
     async def run_protocol(self) -> None:
         """
-        Should run the entire protocol, start to end, in an asynchronous manner
+        Runs the entire protocol, start to end, in an asynchronous manner.
         """
 
     async def send_message(
         self, receiver: str, payload: Any, msg_id: Optional[str] = None
     ) -> None:
         """
-        Send a payload to receiver with msg_id
+        Sends the given payload to the receiver with the given msg_id.
 
-        :param receiver: party to send message to
-        :param payload: data to send
-        :param msg_id: optional identifier for the message
+        :param receiver: Identifier of the party to send the message to.
+        :param payload: Data to send.
+        :param msg_id: Optional identifier for the message.
         """
-        await self.pool.send(receiver, payload, msg_id=msg_id)
+        await self._pool.send(receiver, payload, msg_id=msg_id)
