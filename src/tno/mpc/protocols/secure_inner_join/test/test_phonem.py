@@ -1,6 +1,7 @@
 """
 Tests for the phonetic algorithm
 """
+
 import pytest
 
 from tno.mpc.protocols.secure_inner_join.phonem import phonem_encode
@@ -18,7 +19,7 @@ correct_pairs = [
     ("Thomas  _=(*-#$%^&;:`  /\\?!@ '\"    [](){}|  Rooijakkers", "DOMASROYACRS"),
     ("Thomas               Rooijakkers", "DOMASROYACRS"),
     (
-        "Thom994563()(6as4  _=(*-#$%^&;:`  /\?!@ '\"    [](){}|  Ro*(o00ij2#$akkers",
+        "Thom994563()(6as4  _=(*-#$%^&;:`  /\\?!@ '\"    [](){}|  Ro*(o00ij2#$akkers",
         "DOMASROYACRS",
     ),
     ("Thomas Rooijakkers", "DOMASROYACRS"),

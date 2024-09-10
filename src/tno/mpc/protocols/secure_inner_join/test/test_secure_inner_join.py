@@ -2,33 +2,25 @@
 Tests that can be ran using pytest to test the secure inner join functionality
 """
 
+from __future__ import annotations
+
 import asyncio
 from hashlib import blake2b
-from typing import Callable, Tuple, cast
+from typing import Callable, cast
 
 import numpy as np
 import numpy.typing as npt
 import pytest
 
 from tno.mpc.communication import Pool
+from tno.mpc.encryption_schemes.paillier import Paillier
 
 from tno.mpc.protocols.secure_inner_join import DatabaseOwner, Helper
-from tno.mpc.protocols.secure_inner_join.test.test_fixtures import (  # pylint: disable=unused-import
+from tno.mpc.protocols.secure_inner_join.test.conftest import (
     compute_regular_intersection,
-    event_loop,
-    fixture_alice,
-    fixture_bob,
-    fixture_charlie,
-    fixture_dave,
-    fixture_henri,
-    fixture_parties,
-    fixture_pool_http,
-    fixture_pool_http_3p,
-    fixture_pool_http_4p,
-    fixture_pool_http_5p,
 )
 
-NONE = ((None, None, None, None),)
+NONE = [(None, None, None, None)]
 
 data_alice: npt.NDArray[np.object_] = np.array(
     [
@@ -85,6 +77,9 @@ intersection_four_party = compute_regular_intersection(
 
 
 @pytest.mark.asyncio
+@pytest.mark.filterwarnings(
+    "error:.*ciphertext:UserWarning", "error:.*randomness:UserWarning"
+)
 @pytest.mark.parametrize(
     "feature_names_alice,feature_names_bob,feature_names_charlie,feature_names_dave",
     [
@@ -106,11 +101,11 @@ intersection_four_party = compute_regular_intersection(
 )
 @pytest.mark.parametrize(
     "data_alice,data_bob,data_charlie,data_dave",
-    (((data_alice[:, 1:], data_bob[:, 1:], data_charlie[:, 1:], data_dave[:, 1:]),)),
+    [(data_alice[:, 1:], data_bob[:, 1:], data_charlie[:, 1:], data_dave[:, 1:])],
 )
 @pytest.mark.parametrize(
     "identifiers_alice,identifiers_bob,identifiers_charlie,identifiers_dave",
-    (((data_alice[:, 0], data_bob[:, 0], data_charlie[:, 0], data_dave[:, 0]),)),
+    [(data_alice[:, 0], data_bob[:, 0], data_charlie[:, 0], data_dave[:, 0])],
 )
 @pytest.mark.parametrize(
     "identifiers_phonetic_alice,identifiers_phonetic_bob,identifiers_phonetic_charlie,identifiers_phonetic_dave",
@@ -129,10 +124,10 @@ intersection_four_party = compute_regular_intersection(
     NONE,
 )
 async def test_secure_inner_join(
-    parties: Tuple[Tuple[DatabaseOwner, ...], Helper]
+    parties: tuple[tuple[DatabaseOwner, ...], Helper]
 ) -> None:
     """
-    Tests entire protocol
+    Tests entire protocol, including the amount of randomness used
 
     :param parties: all parties involved in this secure inner join iteration
     """
@@ -176,11 +171,11 @@ async def test_secure_inner_join(
 )
 @pytest.mark.parametrize(
     "data_alice,data_bob,data_charlie,data_dave",
-    (((data_alice[:, 1:], data_bob[:, 1:], data_charlie[:, 1:], data_dave[:, 1:]),)),
+    [(data_alice[:, 1:], data_bob[:, 1:], data_charlie[:, 1:], data_dave[:, 1:])],
 )
 @pytest.mark.parametrize(
     "identifiers_alice,identifiers_bob,identifiers_charlie,identifiers_dave",
-    (((data_alice[:, 0], data_bob[:, 0], data_charlie[:, 0], data_dave[:, 0]),)),
+    [(data_alice[:, 0], data_bob[:, 0], data_charlie[:, 0], data_dave[:, 0])],
 )
 @pytest.mark.parametrize(
     "identifiers_phonetic_alice,identifiers_phonetic_bob,identifiers_phonetic_charlie,identifiers_phonetic_dave",
@@ -199,7 +194,7 @@ async def test_secure_inner_join(
     NONE,
 )
 async def test_features_send_receive(
-    parties: Tuple[Tuple[DatabaseOwner, ...], Helper]
+    parties: tuple[tuple[DatabaseOwner, ...], Helper]
 ) -> None:
     """
     Tests sending and receiving of feature names
@@ -227,16 +222,17 @@ async def test_features_send_receive(
         ("alice", "bob"),
     ],
 )
-@pytest.mark.asyncio
 async def test_verify_data_parties_incorrect(
-    pool_http: Tuple[Pool, ...],
-    data_parties_alice: Tuple[str, ...],
+    pool_http: tuple[Pool, ...],
+    paillier_scheme: Paillier,
+    data_parties_alice: tuple[str, ...],
 ) -> None:
     """
     Test the verification of the data_parties, when the number of data_parties is too small or too large.
     This should raise an error either on construction or in verifying by sending.
 
     :param pool_http: collection of (at least three) communication pools
+    :param paillier_scheme: paillier scheme
     :param data_parties_alice: Tuple containing the data parties that Alice learns.
     """
     henri = Helper(
@@ -248,6 +244,7 @@ async def test_verify_data_parties_incorrect(
     with pytest.raises(ValueError):
         alice = DatabaseOwner(
             identifier=list(pool_http[0].pool_handlers)[0],
+            paillier_scheme=paillier_scheme,
             data_parties=data_parties_alice,
             helper=list(pool_http[1].pool_handlers)[0],
             identifiers=np.zeros(5, dtype=object),
@@ -262,12 +259,14 @@ async def test_verify_data_parties_incorrect(
 
 @pytest.mark.asyncio
 async def test_verify_data_parties_incorrect_sort(
-    pool_http: Tuple[Pool, ...],
+    pool_http: tuple[Pool, ...],
+    paillier_scheme: Paillier,
 ) -> None:
     """
     Test that data parties get sorted correctly, if they are not initially.
 
     :param pool_http: collection of (at least three) communication pools
+    :param paillier_scheme: paillier scheme
     """
     henri = Helper(
         identifier=list(pool_http[1].pool_handlers)[0],
@@ -280,6 +279,7 @@ async def test_verify_data_parties_incorrect_sort(
     alice = DatabaseOwner(
         identifier=list(pool_http[0].pool_handlers)[0],
         data_parties=data_parties_alice,
+        paillier_scheme=paillier_scheme,
         helper=list(pool_http[1].pool_handlers)[0],
         identifiers=np.zeros(5, dtype=object),
         data=np.zeros((5, 5), dtype=object),
@@ -294,17 +294,15 @@ async def test_verify_data_parties_incorrect_sort(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "feature_names_alice,feature_names_bob,feature_names_charlie,feature_names_dave",
-    [
-        ((), (), (), ()),
-    ],
+    [((), (), (), ())],
 )
 @pytest.mark.parametrize(
     "data_alice,data_bob,data_charlie,data_dave",
-    (((data_alice[:, 1:], data_bob[:, 1:], data_charlie[:, 1:], data_dave[:, 1:]),)),
+    [(data_alice[:, 1:], data_bob[:, 1:], data_charlie[:, 1:], data_dave[:, 1:])],
 )
 @pytest.mark.parametrize(
     "identifiers_alice,identifiers_bob,identifiers_charlie,identifiers_dave",
-    (((data_alice[:, 0], data_bob[:, 0], data_charlie[:, 0], data_dave[:, 0]),)),
+    [(data_alice[:, 0], data_bob[:, 0], data_charlie[:, 0], data_dave[:, 0])],
 )
 @pytest.mark.parametrize(
     "identifiers_phonetic_alice,identifiers_phonetic_bob,identifiers_phonetic_charlie,identifiers_phonetic_dave",
@@ -323,7 +321,7 @@ async def test_verify_data_parties_incorrect_sort(
     NONE,
 )
 async def test_randomness_send_receive(
-    parties: Tuple[Tuple[DatabaseOwner, ...], Helper]
+    parties: tuple[tuple[DatabaseOwner, ...], Helper]
 ) -> None:
     """
     Tests sending and receiving of randomness
@@ -344,36 +342,34 @@ async def test_randomness_send_receive(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "feature_names_alice,feature_names_bob,feature_names_charlie,feature_names_dave",
-    [
-        ((), (), (), ()),
-    ],
+    [((), (), (), ())],
 )
 @pytest.mark.parametrize(
     "data_alice,data_bob,data_charlie,data_dave",
-    (((data_alice[:, 1:], data_bob[:, 1:], data_charlie[:, 1:], data_dave[:, 1:]),)),
+    [(data_alice[:, 1:], data_bob[:, 1:], data_charlie[:, 1:], data_dave[:, 1:])],
 )
 @pytest.mark.parametrize(
     "identifiers_alice,identifiers_bob,identifiers_charlie,identifiers_dave",
-    (((data_alice[:, 0], data_bob[:, 0], data_charlie[:, 0], data_dave[:, 0]),)),
+    [(data_alice[:, 0], data_bob[:, 0], data_charlie[:, 0], data_dave[:, 0])],
 )
 @pytest.mark.parametrize(
     "identifiers_phonetic_alice,identifiers_phonetic_bob,identifiers_phonetic_charlie,identifiers_phonetic_dave",
-    NONE,
+    [[1] * 4],
 )
 @pytest.mark.parametrize(
     "identifiers_phonetic_exact_alice,identifiers_phonetic_exact_bob,identifiers_phonetic_exact_charlie,identifiers_phonetic_exact_dave",
-    NONE,
+    [[2] * 4],
 )
 @pytest.mark.parametrize(
     "identifier_date_alice,identifier_date_bob,identifier_date_charlie,identifier_date_dave",
-    NONE,
+    [[3] * 4],
 )
 @pytest.mark.parametrize(
     "identifier_zip6_alice,identifier_zip6_bob,identifier_zip6_charlie,identifier_zip6_dave",
-    NONE,
+    [[4] * 4],
 )
 async def test_paillier_send_receive(
-    parties: Tuple[Tuple[DatabaseOwner, ...], Helper]
+    parties: tuple[tuple[DatabaseOwner, ...], Helper]
 ) -> None:
     """
     Tests sending and receiving of paillier schemes
@@ -403,17 +399,15 @@ async def test_paillier_send_receive(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "data_alice,data_bob,data_charlie,data_dave",
-    (((data_alice[:, 1:], data_bob[:, 1:], data_charlie[:, 1:], data_dave[:, 1:]),)),
+    [(data_alice[:, 1:], data_bob[:, 1:], data_charlie[:, 1:], data_dave[:, 1:])],
 )
 @pytest.mark.parametrize(
     "identifiers_alice,identifiers_bob,identifiers_charlie,identifiers_dave",
-    (((data_alice[:, 0], data_bob[:, 0], data_charlie[:, 0], data_dave[:, 0]),)),
+    [(data_alice[:, 0], data_bob[:, 0], data_charlie[:, 0], data_dave[:, 0])],
 )
 @pytest.mark.parametrize(
     "feature_names_alice,feature_names_bob,feature_names_charlie,feature_names_dave",
-    [
-        ((), (), (), ()),
-    ],
+    [((), (), (), ())],
 )
 @pytest.mark.parametrize(
     "identifiers_phonetic_alice,identifiers_phonetic_bob,identifiers_phonetic_charlie,identifiers_phonetic_dave",
@@ -432,13 +426,14 @@ async def test_paillier_send_receive(
     NONE,
 )
 async def test_hash_functions(
-    parties: Tuple[Tuple[DatabaseOwner, ...], Helper]
+    parties: tuple[tuple[DatabaseOwner, ...], Helper]
 ) -> None:
     """
     Test to see if setting the hash function behaves as expected.
 
     :param parties: all parties involved in this secure inner join iteration
     """
+    # pylint: disable=protected-access
     await asyncio.gather(
         *(
             [party.send_randomness_to_all() for party in parties[0]]

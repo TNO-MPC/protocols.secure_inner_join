@@ -1,0 +1,13 @@
+first_name,last_name,date_of_birth,zip6_code,gender_at_birth,correct_match_A
+Tomas,Roijackers,09-01-1874,1234AB,M,-1
+Tomas,Rooiakkers,06-12-1874,1232XY,M,3
+Tomas,Rooijackers,16-02-1875,5712DX,M,5
+Tomas,Roijackers,09-01-1874,7521LS,M,4
+Thomas,Rooijakkers,09-01-1874,1234AB,M,1
+Thomas,Rooijakkers,06-12-1874,1234AB,F,-2
+Thomas,Rooijakkers,09-01-1830,1234AB,M,-3
+Thomas,Someone-else,01-01-1873,6789CD,M,-4
+Victor,Li,09-01-1823,6231LI,M,-5
+Bart,Kamphoorst,07-06-1872,3412CD,M,6
+Michiel,Marcus,06-05-1874,1382SH,M,2
+Tariq,Bontekoe,24-12-1873,8394HG,M,-6

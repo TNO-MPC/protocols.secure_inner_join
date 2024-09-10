@@ -2,11 +2,13 @@
 Module contains DatabaseOwner class (either Alice or Bob) for performing secure set intersection
 """
 
+from __future__ import annotations
+
 import asyncio
-import secrets  # "True" (secure) randomness
+import secrets
 from dataclasses import dataclass, field
 from hashlib import sha256
-from typing import Any, AnyStr, Callable, Dict, Optional, SupportsInt, Tuple, overload
+from typing import Any, AnyStr, Callable, SupportsInt, cast, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -18,6 +20,7 @@ from tno.mpc.encryption_schemes.paillier import Paillier, PaillierCiphertext
 from .lsh import get_hyper_planes, lsh_hash
 from .phonem import phonem_encode
 from .player import Player
+from .utils import randomize_ndarray
 
 
 def sha256_hash_digest(bytes_string: bytes) -> bytes:
@@ -41,27 +44,25 @@ class DatabaseOwner(Player):
         Nested data class to store received data
         """
 
-        feature_names: Dict[str, Tuple[str, ...]] = field(default_factory=dict)
-        intersection_size: Optional[int] = None
-        paillier_scheme: Dict[str, Paillier] = field(default_factory=dict)
-        randomness: Dict[str, int] = field(default_factory=dict)
-        share: Optional[
-            npt.NDArray[np.object_]
-        ] = None  # this contains the shares belonging to the own features
+        feature_names: dict[str, tuple[str, ...]] = field(default_factory=dict)
+        intersection_size: int | None = None
+        paillier_scheme: dict[str, Paillier] = field(default_factory=dict)
+        randomness: dict[str, int] = field(default_factory=dict)
+        share: None | (npt.NDArray[np.object_]) = (
+            None  # this contains the shares belonging to the own features
+        )
 
     def __init__(
         self,
         *args: Any,
         identifiers: npt.NDArray[Any],
         data: npt.NDArray[Any],
-        identifiers_phonetic: Optional[npt.NDArray[Any]] = None,
-        identifiers_phonetic_exact: Optional[npt.NDArray[Any]] = None,
-        identifier_date: Optional[npt.NDArray[Any]] = None,
-        identifier_zip6: Optional[npt.NDArray[Any]] = None,
-        feature_names: Tuple[str, ...] = (),
-        paillier_scheme: Paillier = Paillier.from_security_parameter(
-            key_length=2048, precision=8
-        ),
+        paillier_scheme: Paillier,
+        identifiers_phonetic: npt.NDArray[Any] | None = None,
+        identifiers_phonetic_exact: npt.NDArray[Any] | None = None,
+        identifier_date: npt.NDArray[Any] | None = None,
+        identifier_zip6: npt.NDArray[Any] | None = None,
+        feature_names: tuple[str, ...] = (),
         randomness_length: int = 64,
         phonetic_algorithm: Callable[[str], str] = phonem_encode,
         lsh_slices: int = 1000,
@@ -74,6 +75,7 @@ class DatabaseOwner(Player):
         :param identifiers: identifiers to find exactly matching data for
         :param data: attributes (feature values) that will end up in the
                                      secure inner join
+        :param paillier_scheme: Instance of a Paillier scheme.
         :param identifiers_phonetic: identifiers to find matching data for
                                      that can contain phonetic errors
         :param identifiers_phonetic_exact: exact identifiers to append to
@@ -85,7 +87,6 @@ class DatabaseOwner(Player):
                                      that can contain erroneous zip6 code.
                                      Should be of the form 1234AB
         :param feature_names: optional names of the shared features
-        :param paillier_scheme: Instance of a Paillier scheme.
         :param randomness_length: number of bits for shared randomness salt
         :param phonetic_algorithm: phonetic algorithm (function) to use for phonetic matching
         :param lsh_slices: number of slices/hyperplanes to construct for LSH hashing, higher
@@ -122,37 +123,36 @@ class DatabaseOwner(Player):
         self.__identifier_date = DatabaseOwner._to_object_array(identifier_date)
         self.__identifier_zip6 = DatabaseOwner._to_object_array(identifier_zip6)
         self.__data = DatabaseOwner._to_object_array(data)
+        self._start_randomness_generation(amount=self.__data.size)
         self.__feature_names = feature_names or tuple(
             "" for _ in range(self.__data.shape[1])
         )
         self.lsh_slices = lsh_slices
 
         # To be filled
-        self._scrambled_identifiers: Optional[npt.NDArray[np.object_]] = None
-        self._scrambled_data: Optional[npt.NDArray[np.object_]] = None
-        self._scrambled_ph_identifiers: Optional[npt.NDArray[np.object_]] = None
-        self._scrambled_lsh_identifiers: Optional[npt.NDArray[np.object_]] = None
-        self._lsh_hyperplanes: Optional[npt.NDArray[np.int_]] = None
-        self._lsh_bitmask: Optional[bitarray] = None
+        self._scrambled_identifiers: npt.NDArray[np.object_] | None = None
+        self._scrambled_data: npt.NDArray[np.object_] | None = None
+        self._scrambled_ph_identifiers: npt.NDArray[np.object_] | None = None
+        self._scrambled_lsh_identifiers: npt.NDArray[np.object_] | None = None
+        self._lsh_hyperplanes: npt.NDArray[np.int_] | None = None
+        self._lsh_bitmask: bitarray | None = None
         self._received: DatabaseOwner.Collection = DatabaseOwner.Collection()
-        self._share: Dict[
-            str, npt.NDArray[np.object_]
-        ] = {}  # this contains the shares belonging to the features of other parties
+        self._share: dict[str, npt.NDArray[np.object_]] = (
+            {}
+        )  # this contains the shares belonging to the features of other parties
 
     @overload
     @staticmethod
-    def _to_object_array(array: npt.NDArray[Any]) -> npt.NDArray[np.object_]:
-        ...
+    def _to_object_array(array: npt.NDArray[Any]) -> npt.NDArray[np.object_]: ...
 
     @overload
     @staticmethod
-    def _to_object_array(array: None) -> None:
-        ...
+    def _to_object_array(array: None) -> None: ...
 
     @staticmethod
     def _to_object_array(
-        array: Optional[npt.NDArray[Any]],
-    ) -> Optional[npt.NDArray[np.object_]]:
+        array: npt.NDArray[Any] | None,
+    ) -> npt.NDArray[np.object_] | None:
         """
         Converts any array to an object array
 
@@ -164,13 +164,13 @@ class DatabaseOwner(Player):
         return np.asarray(array, dtype=np.object_)
 
     @property
-    def feature_names(self) -> Tuple[str, ...]:
+    def feature_names(self) -> tuple[str, ...]:
         """
         The feature names of the inner join (same order for all data parties).
 
         :return: Tuple of feature names.
         """
-        all_feature_names: Tuple[str, ...] = ()
+        all_feature_names: tuple[str, ...] = ()
         for data_party in self.data_parties:
             if data_party == self.identifier:
                 all_feature_names += self._own_feature_names
@@ -191,7 +191,7 @@ class DatabaseOwner(Player):
         return self._received.intersection_size
 
     @property
-    def received_paillier_schemes(self) -> Dict[str, Paillier]:
+    def received_paillier_schemes(self) -> dict[str, Paillier]:
         """
         The received Paillier schemes of all data parties.
 
@@ -221,22 +221,23 @@ class DatabaseOwner(Player):
         """
         if self.intersection_size == 0:
             return np.empty([0, len(self.feature_names)], dtype=np.object_)
+
         if self._received.share is None or len(self._share) != len(self._other_parties):
             raise ValueError("Not all shares are available (yet).")
 
-        return np.hstack(
-            tuple(
-                map(
-                    lambda party: self._received.share
-                    if party == self.identifier
-                    else self._share[party],
-                    self.data_parties,
-                )
-            )
-        )
+        def safe_get_share(party: str) -> npt.NDArray[np.object_]:
+            if party == self.identifier:
+                if self._received.share is None:
+                    raise ValueError("Own share is not available.")
+                return self._received.share
+            if party not in self._share:
+                raise ValueError(f"Share for party {party} is not available.")
+            return self._share[party]
+
+        return np.hstack(tuple(safe_get_share(party) for party in self.data_parties))
 
     @property
-    def _other_parties(self) -> Tuple[str, ...]:
+    def _other_parties(self) -> tuple[str, ...]:
         """
         The identifiers of all other data parties.
 
@@ -250,7 +251,7 @@ class DatabaseOwner(Player):
         return tuple(data_parties_list)
 
     @property
-    def _own_feature_names(self) -> Tuple[str, ...]:
+    def _own_feature_names(self) -> tuple[str, ...]:
         """
         The feature names (columns) of the own dataset.
 
@@ -268,7 +269,7 @@ class DatabaseOwner(Player):
         return self.__randomness
 
     @property
-    def _received_feature_names(self) -> Dict[str, Tuple[str, ...]]:
+    def _received_feature_names(self) -> dict[str, tuple[str, ...]]:
         """
         The features names of all other data parties.
 
@@ -280,7 +281,7 @@ class DatabaseOwner(Player):
         return self._received.feature_names
 
     @property
-    def _received_randomness(self) -> Dict[str, int]:
+    def _received_randomness(self) -> dict[str, int]:
         """
         The randomness values of all other data parties.
 
@@ -290,6 +291,27 @@ class DatabaseOwner(Player):
         if len(self._received.randomness) != len(self._other_parties):
             raise ValueError("Did not receive all randomness yet.")
         return self._received.randomness
+
+    def _start_randomness_generation(self, amount: int) -> None:
+        """
+        Kicks off the randomness generation. This boosts performance.
+        In particular will this decrease the total runtime (as database owners can
+        already generate randomness before they need it).
+
+        :param amount: amount of randomness to precompute.
+        """
+        self.paillier_scheme.boot_randomness_generation(
+            amount,
+        )
+
+    def _start_alien_scheme_randomness_generation(self) -> None:
+        """
+        Kicks off the randomness generation in received schemes.
+        """
+        for other_party in self._other_parties:
+            share = self._share[other_party]
+            scheme = self._received.paillier_scheme[other_party]
+            scheme.boot_randomness_generation(share.size)
 
     def encode_lsh_data(self) -> None:
         """
@@ -448,6 +470,8 @@ class DatabaseOwner(Player):
         )
         if self.intersection_size > 0:
             await loop.run_in_executor(None, self.generate_shares)
+            self._start_alien_scheme_randomness_generation()
+
             await asyncio.gather(
                 *[
                     self.send_shares(),
@@ -462,6 +486,7 @@ class DatabaseOwner(Player):
         """
         Send the encrypted data to the helper
         """
+        randomize_ndarray(cast(npt.NDArray[np.object_], self._scrambled_data))
         await self.send_message(self.helper, self._scrambled_data, "encrypted_data")
         self._logger.info(f"Sent encrypted data to {self.helper}")
 
@@ -524,7 +549,9 @@ class DatabaseOwner(Player):
         self._logger.info("Start sending shares")
 
         loop = asyncio.get_event_loop()
-        encrypted_shares = await loop.run_in_executor(None, self._encrypt_all_shares)
+        encrypted_shares = await loop.run_in_executor(
+            None, self._safely_encrypt_all_shares
+        )
         await self.send_message(self.helper, encrypted_shares, msg_id="random_share")
         self._logger.info("Sent shares")
 
@@ -533,9 +560,11 @@ class DatabaseOwner(Player):
         Encrypts attributes (feature values) stored in self.__data and stores the encryption in self._scrambled_data.
         """
         self._scrambled_data = np.ndarray(self.__data.shape, dtype=np.object_)
-        self._scrambled_data = np.vectorize(self.paillier_scheme.encrypt)(self.__data)
+        self._scrambled_data = np.vectorize(self.paillier_scheme.unsafe_encrypt)(
+            self.__data
+        )
 
-    def _encrypt_all_shares(self) -> Dict[str, npt.NDArray[np.object_]]:
+    def _safely_encrypt_all_shares(self) -> dict[str, npt.NDArray[np.object_]]:
         """
         Encrypt the shares of all other data parties with their respective Paillier public keys.
 
@@ -545,19 +574,23 @@ class DatabaseOwner(Player):
 
         for other_party in self._other_parties:
             encrypted_shares[other_party] = np.vectorize(
-                self._encrypt_share(other_party)
+                self._unsafely_encrypt_share(other_party)
             )(self._share[other_party])
+            # vectorize uses more randomness than randomize_ndarray
+            randomize_ndarray(encrypted_shares[other_party])
 
         return encrypted_shares
 
-    def _encrypt_share(self, party: str) -> Callable[[int], PaillierCiphertext]:
+    def _unsafely_encrypt_share(
+        self, party: str
+    ) -> Callable[[int], PaillierCiphertext]:
         """
         Return method for encrypting values with the public key of the given other party.
 
         :return: Method to encrypt values with a public key.
         """
         paillier_scheme = self.received_paillier_schemes[party]
-        return paillier_scheme.encrypt
+        return paillier_scheme.unsafe_encrypt
 
     def _hash_entry(self, entry: AnyStr) -> bytes:
         """
@@ -661,6 +694,12 @@ class DatabaseOwner(Player):
             self._scrambled_ph_identifiers = np.vectorize(self.phonetic_algorithm)(
                 self._scrambled_ph_identifiers
             )
+
+            if self._scrambled_ph_identifiers is None:
+                raise ValueError(
+                    "Unexpected error occurred during phonetic encoding (self._scrambled_ph_identifiers is None)"
+                )
+
             if self.__identifiers_phonetic_exact is not None:
                 # Append exact attributes to string
                 self._scrambled_ph_identifiers = np.sum(
@@ -753,3 +792,11 @@ class DatabaseOwner(Player):
             return paillier_scheme.random_plaintext() / (len(self._other_parties))
 
         return _signed_randomness
+
+    def shutdown_received_schemes(self) -> None:
+        """
+        Shut down all Paillier schemes that were received.
+        """
+        for other_party in self._other_parties:
+            if scheme := self._received.paillier_scheme.get(other_party):
+                scheme.shut_down()

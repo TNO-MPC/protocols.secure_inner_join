@@ -10,9 +10,9 @@ Inspired by Talisman's implementation:
 https://raw.githubusercontent.com/Yomguithereal/talisman/4c8ac7fd9/src/phonetics/german/phonem.js
 """
 
+from __future__ import annotations
 
 import itertools
-from typing import Dict, Union
 
 SUBSTITUTIONS = {
     "SC": "C",
@@ -34,7 +34,7 @@ SUBSTITUTIONS = {
     "OU": "§",
 }
 
-TRANSLATIONS: Dict[str, Union[int, str, None]] = {
+TRANSLATIONS: dict[str, int | str | None] = {
     "Z": "C",
     "K": "C",
     "G": "C",

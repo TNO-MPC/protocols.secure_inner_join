@@ -2,27 +2,16 @@
 Tests that can be ran using pytest to test the secure inner join functionality
 """
 
+from __future__ import annotations
+
 import asyncio
-from typing import Tuple, cast
+from typing import cast
 
 import numpy as np
 import numpy.typing as npt
 import pytest
 
 from tno.mpc.protocols.secure_inner_join import DatabaseOwner, Helper
-from tno.mpc.protocols.secure_inner_join.test.test_fixtures import (  # pylint: disable=unused-import
-    event_loop,
-    fixture_alice,
-    fixture_bob,
-    fixture_charlie,
-    fixture_dave,
-    fixture_henri,
-    fixture_parties,
-    fixture_pool_http,
-    fixture_pool_http_3p,
-    fixture_pool_http_4p,
-    fixture_pool_http_5p,
-)
 
 data_alice: npt.NDArray[np.object_] = np.array(
     [
@@ -85,6 +74,9 @@ data_dave: npt.NDArray[np.object_] = np.array(
 
 
 @pytest.mark.asyncio
+@pytest.mark.filterwarnings(
+    "error:.*ciphertext:UserWarning", "error:.*randomness:UserWarning"
+)
 @pytest.mark.parametrize(
     "feature_names_alice,feature_names_bob,feature_names_charlie,feature_names_dave",
     [
@@ -106,78 +98,68 @@ data_dave: npt.NDArray[np.object_] = np.array(
 )
 @pytest.mark.parametrize(
     "data_alice,data_bob,data_charlie,data_dave",
-    (((data_alice[:, 5:], data_bob[:, 5:], data_charlie[:, 5:], data_dave[:, 5:]),)),
+    [(data_alice[:, 5:], data_bob[:, 5:], data_charlie[:, 5:], data_dave[:, 5:])],
 )
 @pytest.mark.parametrize(
     "identifiers_alice,identifiers_bob,identifiers_charlie,identifiers_dave",
-    (
+    [
         (
-            (
-                data_alice[:, 0:5],
-                data_bob[:, 0:5],
-                data_charlie[:, 0:5],
-                data_dave[:, 0:5],
-            ),
+            data_alice[:, 0:5],
+            data_bob[:, 0:5],
+            data_charlie[:, 0:5],
+            data_dave[:, 0:5],
         )
-    ),
+    ],
 )
 @pytest.mark.parametrize(
     "identifiers_phonetic_alice,identifiers_phonetic_bob,identifiers_phonetic_charlie,identifiers_phonetic_dave",
-    (
+    [
         (
-            (
-                data_alice[:, 0:2],
-                data_bob[:, 0:2],
-                data_charlie[:, 0:2],
-                data_dave[:, 0:2],
-            ),
+            data_alice[:, 0:2],
+            data_bob[:, 0:2],
+            data_charlie[:, 0:2],
+            data_dave[:, 0:2],
         )
-    ),
+    ],
 )
 @pytest.mark.parametrize(
     "identifiers_phonetic_exact_alice,identifiers_phonetic_exact_bob,identifiers_phonetic_exact_charlie,identifiers_phonetic_exact_dave",
-    (
+    [
         (
-            (
-                data_alice[:, 4],
-                data_bob[:, 4],
-                data_charlie[:, 4],
-                data_dave[:, 4],
-            ),
+            data_alice[:, 4],
+            data_bob[:, 4],
+            data_charlie[:, 4],
+            data_dave[:, 4],
         )
-    ),
+    ],
 )
 @pytest.mark.parametrize(
     "identifier_date_alice,identifier_date_bob,identifier_date_charlie,identifier_date_dave",
-    (
+    [
         (
-            (
-                data_alice[:, 2],
-                data_bob[:, 2],
-                data_charlie[:, 2],
-                data_dave[:, 2],
-            ),
+            data_alice[:, 2],
+            data_bob[:, 2],
+            data_charlie[:, 2],
+            data_dave[:, 2],
         )
-    ),
+    ],
 )
 @pytest.mark.parametrize(
     "identifier_zip6_alice,identifier_zip6_bob,identifier_zip6_charlie,identifier_zip6_dave",
-    (
+    [
         (
-            (
-                data_alice[:, 3],
-                data_bob[:, 3],
-                data_charlie[:, 3],
-                data_dave[:, 3],
-            ),
+            data_alice[:, 3],
+            data_bob[:, 3],
+            data_charlie[:, 3],
+            data_dave[:, 3],
         )
-    ),
+    ],
 )
 async def test_secure_matching(
-    parties: Tuple[Tuple[DatabaseOwner, ...], Helper]
+    parties: tuple[tuple[DatabaseOwner, ...], Helper]
 ) -> None:
     """
-    Tests entire protocol
+    Tests entire protocol, including the amount of randomness used
 
     :param parties: all parties involved in this secure inner join iteration
     """

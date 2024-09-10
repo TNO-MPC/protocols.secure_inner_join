@@ -1,8 +1,12 @@
 """
 Fixtures that can be used for defining test cases.
 """
+
+# pylint: disable=redefined-outer-name
+from __future__ import annotations
+
 from functools import partial, reduce
-from typing import AsyncGenerator, Dict, List, Optional, Tuple
+from typing import Callable, Iterator
 
 import numpy as np
 import numpy.typing as npt
@@ -10,16 +14,13 @@ import pytest
 from _pytest.fixtures import FixtureRequest
 
 from tno.mpc.communication import Pool
-from tno.mpc.communication.test import event_loop as event_loop
-from tno.mpc.communication.test import fixture_pool_http_3p as fixture_pool_http_3p
-from tno.mpc.communication.test import fixture_pool_http_4p as fixture_pool_http_4p
-from tno.mpc.communication.test import fixture_pool_http_5p as fixture_pool_http_5p
+from tno.mpc.encryption_schemes.paillier import Paillier
 
 from tno.mpc.protocols.secure_inner_join import DatabaseOwner, Helper
 
 
 def compute_regular_intersection(
-    datasets: Tuple[npt.NDArray[np.object_], ...]
+    datasets: tuple[npt.NDArray[np.object_], ...]
 ) -> npt.NDArray[np.object_]:
     """
     Computes an intersection the regular way (i.e. without fancy MPC) of a tuple of numpy arrays. Each numpy array
@@ -33,7 +34,7 @@ def compute_regular_intersection(
         lambda arr1, arr2: np.intersect1d(arr1, arr2, assume_unique=True),
         (dataset[:, 0] for dataset in datasets),
     )
-    all_features: List[npt.NDArray[np.object_]] = [
+    all_features: list[npt.NDArray[np.object_]] = [
         np.atleast_2d(np.array(common_identifiers)).transpose()
     ]
 
@@ -57,13 +58,13 @@ def compute_regular_intersection(
 
 @pytest.fixture(name="parties")
 def fixture_parties(
-    pool_http: Tuple[Pool, ...],
+    pool_http: tuple[Pool, ...],
     alice: DatabaseOwner,
     bob: DatabaseOwner,
     charlie: DatabaseOwner,
     dave: DatabaseOwner,
     henri: Helper,
-) -> Tuple[Tuple[DatabaseOwner, ...], Helper]:
+) -> tuple[tuple[DatabaseOwner, ...], Helper]:
     """
     Get all parties given a HTTP of size (3,4,5). The parties consist of the one helper pool and the remainder is data
     parties.
@@ -91,35 +92,37 @@ def fixture_parties(
     ids=["2-party", "3-party", "4-party"],
     scope="module",
 )
-async def fixture_pool_http(
+def fixture_pool_http(
     request: FixtureRequest,
-    pool_http_3p: AsyncGenerator[Tuple[Pool, ...], None],
-    pool_http_4p: AsyncGenerator[Tuple[Pool, ...], None],
-    pool_http_5p: AsyncGenerator[Tuple[Pool, ...], None],
-) -> AsyncGenerator[Tuple[Pool, ...], None]:
+    http_pool_group_factory: Callable[[int], tuple[Pool, ...]],
+) -> tuple[Pool, ...]:
     """
     Creates a collection of 3, 4 and 5 communication pools
 
-    :param pool_http_3p: Pool of 3 HTTP clients.
-    :param pool_http_4p: Pool of 4 HTTP clients.
-    :param pool_http_5p: Pool of 5 HTTP clients.
+    :param http_pool_group_factory: Factory for creating a HTTP pool group.
     :param request: A fixture request used to indirectly parametrize.
-    :raise NotImplementedError: raised when based on the given param, no fixture can be created
     :return: a collection of communication pools
     """
-    if request.param == 3:  # type: ignore[attr-defined]
-        return pool_http_3p
-    if request.param == 4:  # type: ignore[attr-defined]
-        return pool_http_4p
-    if request.param == 5:  # type: ignore[attr-defined]
-        return pool_http_5p
-    raise NotImplementedError("This has not been implemented")
+    return http_pool_group_factory(request.param)
+
+
+@pytest.fixture
+def paillier_scheme() -> Iterator[Paillier]:
+    """
+    Yield a paillier scheme and properly shut it down afterwards.
+
+    :return: Paillier scheme.
+    """
+    scheme = Paillier.from_security_parameter(key_length=2048, precision=8)
+    yield scheme
+    scheme.shut_down()
 
 
 @pytest.fixture(name="alice")
 def fixture_alice(
-    pool_http: Tuple[Pool, ...],
-    feature_names_alice: Tuple[str, ...],
+    pool_http: tuple[Pool, ...],
+    paillier_scheme: Paillier,
+    feature_names_alice: tuple[str, ...],
     identifiers_alice: npt.NDArray[np.object_],
     data_alice: npt.NDArray[np.object_],
     identifiers_phonetic_alice: npt.NDArray[np.object_],
@@ -131,6 +134,7 @@ def fixture_alice(
     Constructs player Alice
 
     :param pool_http: collection of (at least three) communication pools
+    :param paillier_scheme: paillier scheme
     :param feature_names_alice: feature names of Alice's data
     :param identifiers_alice: identifiers of alice
     :param data_alice: data of alice
@@ -140,10 +144,9 @@ def fixture_alice(
     :param identifier_zip6_alice: zip6 identifiers alice
     :return: an initialized database owner
     """
-    return DatabaseOwner(
-        identifier=list(pool_http[0].pool_handlers)[0],
-        data_parties=list(pool_http[0].pool_handlers),
-        helper=list(pool_http[1].pool_handlers)[0],
+    return create_database_owner(
+        pool_http=pool_http,
+        paillier=paillier_scheme,
         identifiers=identifiers_alice,
         data=data_alice,
         identifiers_phonetic=identifiers_phonetic_alice,
@@ -151,14 +154,15 @@ def fixture_alice(
         identifier_date=identifier_date_alice,
         identifier_zip6=identifier_zip6_alice,
         feature_names=feature_names_alice,
-        pool=pool_http[1],
+        database_nr=0,
     )
 
 
 @pytest.fixture(name="bob")
 def fixture_bob(
-    pool_http: Tuple[Pool, ...],
-    feature_names_bob: Tuple[str, ...],
+    pool_http: tuple[Pool, ...],
+    paillier_scheme: Paillier,
+    feature_names_bob: tuple[str, ...],
     identifiers_bob: npt.NDArray[np.object_],
     data_bob: npt.NDArray[np.object_],
     identifiers_phonetic_bob: npt.NDArray[np.object_],
@@ -170,6 +174,7 @@ def fixture_bob(
     Constructs player Bob
 
     :param pool_http: collection of (at least three) communication pools
+    :param paillier_scheme: paillier scheme
     :param feature_names_bob: feature names of Bob's data
     :param identifiers_bob: identifiers of bob
     :param data_bob: data of bob
@@ -179,10 +184,9 @@ def fixture_bob(
     :param identifier_zip6_bob: zip6 identifiers bob
     :param :return: an initialized database owner
     """
-    return DatabaseOwner(
-        identifier=list(pool_http[0].pool_handlers)[1],
-        data_parties=list(pool_http[0].pool_handlers),
-        helper=list(pool_http[1].pool_handlers)[0],
+    return create_database_owner(
+        pool_http=pool_http,
+        paillier=paillier_scheme,
         identifiers=identifiers_bob,
         data=data_bob,
         identifiers_phonetic=identifiers_phonetic_bob,
@@ -190,25 +194,27 @@ def fixture_bob(
         identifier_date=identifier_date_bob,
         identifier_zip6=identifier_zip6_bob,
         feature_names=feature_names_bob,
-        pool=pool_http[2],
+        database_nr=1,
     )
 
 
 @pytest.fixture(name="charlie")
 def fixture_charlie(
-    pool_http: Tuple[Pool, ...],
-    feature_names_charlie: Tuple[str, ...],
+    pool_http: tuple[Pool, ...],
+    paillier_scheme: Paillier,
+    feature_names_charlie: tuple[str, ...],
     identifiers_charlie: npt.NDArray[np.object_],
     data_charlie: npt.NDArray[np.object_],
     identifiers_phonetic_charlie: npt.NDArray[np.object_],
     identifiers_phonetic_exact_charlie: npt.NDArray[np.object_],
     identifier_date_charlie: npt.NDArray[np.object_],
     identifier_zip6_charlie: npt.NDArray[np.object_],
-) -> Optional[DatabaseOwner]:
+) -> DatabaseOwner | None:
     """
     Constructs player Charlie
 
     :param pool_http: collection of (at least four) communication pools
+    :param paillier_scheme: paillier scheme
     :param feature_names_charlie: feature names of Charlie's data
     :param identifiers_charlie: identifiers of charlie
     :param data_charlie: data of charlie
@@ -220,10 +226,9 @@ def fixture_charlie(
     """
     if len(pool_http) < 4:
         return None
-    return DatabaseOwner(
-        identifier=list(pool_http[0].pool_handlers)[2],
-        data_parties=list(pool_http[0].pool_handlers),
-        helper=list(pool_http[1].pool_handlers)[0],
+    return create_database_owner(
+        pool_http=pool_http,
+        paillier=paillier_scheme,
         identifiers=identifiers_charlie,
         data=data_charlie,
         identifiers_phonetic=identifiers_phonetic_charlie,
@@ -231,25 +236,27 @@ def fixture_charlie(
         identifier_date=identifier_date_charlie,
         identifier_zip6=identifier_zip6_charlie,
         feature_names=feature_names_charlie,
-        pool=pool_http[3],
+        database_nr=2,
     )
 
 
 @pytest.fixture(name="dave")
 def fixture_dave(
-    pool_http: Tuple[Pool, ...],
-    feature_names_dave: Tuple[str, ...],
+    pool_http: tuple[Pool, ...],
+    paillier_scheme: Paillier,
+    feature_names_dave: tuple[str, ...],
     identifiers_dave: npt.NDArray[np.object_],
     data_dave: npt.NDArray[np.object_],
     identifiers_phonetic_dave: npt.NDArray[np.object_],
     identifiers_phonetic_exact_dave: npt.NDArray[np.object_],
     identifier_date_dave: npt.NDArray[np.object_],
     identifier_zip6_dave: npt.NDArray[np.object_],
-) -> Optional[DatabaseOwner]:
+) -> DatabaseOwner | None:
     """
     Constructs player Dave
 
     :param pool_http: collection of (at least five) communication pools
+    :param paillier_scheme: paillier scheme
     :param feature_names_dave: feature names of Dave's data
     :param identifiers_dave: identifiers of dave
     :param data_dave: data of dave
@@ -261,10 +268,9 @@ def fixture_dave(
     """
     if len(pool_http) < 5:
         return None
-    return DatabaseOwner(
-        identifier=list(pool_http[0].pool_handlers)[3],
-        data_parties=list(pool_http[0].pool_handlers),
-        helper=list(pool_http[1].pool_handlers)[0],
+    return create_database_owner(
+        pool_http=pool_http,
+        paillier=paillier_scheme,
         identifiers=identifiers_dave,
         data=data_dave,
         identifiers_phonetic=identifiers_phonetic_dave,
@@ -272,15 +278,58 @@ def fixture_dave(
         identifier_date=identifier_date_dave,
         identifier_zip6=identifier_zip6_dave,
         feature_names=feature_names_dave,
-        pool=pool_http[4],
+        database_nr=3,
+    )
+
+
+def create_database_owner(
+    pool_http: tuple[Pool, ...],
+    paillier: Paillier,
+    feature_names: tuple[str, ...],
+    identifiers: npt.NDArray[np.object_],
+    data: npt.NDArray[np.object_],
+    identifiers_phonetic: npt.NDArray[np.object_],
+    identifiers_phonetic_exact: npt.NDArray[np.object_],
+    identifier_date: npt.NDArray[np.object_],
+    identifier_zip6: npt.NDArray[np.object_],
+    database_nr: int,
+) -> DatabaseOwner:
+    """
+    Constructs DatabaseOwner
+
+    :param pool_http: collection of communication pools
+    :param paillier: paillier scheme
+    :param feature_names: feature names of this database owner's data
+    :param identifiers: identifiers of this database owner
+    :param data: data of this database owner
+    :param identifiers_phonetic: phonetic identifiers
+    :param identifiers_phonetic_exact: exact phonetic identifiers
+    :param identifier_date: date identifiers
+    :param identifier_zip6: zip6 identifiers
+    :param database_nr: instance count of this DatabaseOwner
+    :return: an initialized database owner
+    """
+    return DatabaseOwner(
+        identifier=list(pool_http[0].pool_handlers)[database_nr],
+        data_parties=list(pool_http[0].pool_handlers),
+        paillier_scheme=paillier,
+        helper=list(pool_http[1].pool_handlers)[0],
+        identifiers=identifiers,
+        data=data,
+        identifiers_phonetic=identifiers_phonetic,
+        identifiers_phonetic_exact=identifiers_phonetic_exact,
+        identifier_date=identifier_date,
+        identifier_zip6=identifier_zip6,
+        feature_names=feature_names,
+        pool=pool_http[database_nr + 1],
     )
 
 
 def threshold_function(
-    pairs: List[Tuple[Tuple[int, int], Tuple[int, int]]],
-    lookup_table: Dict[
-        Tuple[Tuple[int, int], Tuple[int, int]],
-        Tuple[float, Tuple[float, float, float, float]],
+    pairs: list[tuple[tuple[int, int], tuple[int, int]]],
+    lookup_table: dict[
+        tuple[tuple[int, int], tuple[int, int]],
+        tuple[float, tuple[float, float, float, float]],
     ],
 ) -> bool:
     """
@@ -294,7 +343,7 @@ def threshold_function(
 
 
 @pytest.fixture(name="henri")
-def fixture_henri(pool_http: Tuple[Pool, ...]) -> Helper:
+def fixture_henri(pool_http: tuple[Pool, ...]) -> Helper:
     """
     Constructs player henri
 

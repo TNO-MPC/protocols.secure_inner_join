@@ -2,40 +2,38 @@
 This implements Locality-Sensitive Hashing for dates and zip2-codes.
 """
 
-from typing import Optional, Tuple, Union, overload
+from __future__ import annotations
+
+from typing import Literal, overload
 
 import numpy as np
 import numpy.typing as npt
 from bitarray import bitarray
 from numpy.random import Generator
-from randomgen import PCG32  # type: ignore[import]
-from typing_extensions import Literal
+from randomgen import PCG32
 
 
 @overload
 def get_hyper_planes(
     amount: int = ..., seed: int = ..., mask: Literal[True] = ...
-) -> Tuple[npt.NDArray[np.int_], bitarray]:
-    ...
+) -> tuple[npt.NDArray[np.int_], bitarray]: ...
 
 
 @overload
 def get_hyper_planes(
     amount: int, seed: int, mask: Literal[False]
-) -> npt.NDArray[np.int_]:
-    ...
+) -> npt.NDArray[np.int_]: ...
 
 
 @overload
 def get_hyper_planes(
     amount: int = ..., seed: int = ..., mask: bool = ...
-) -> Union[npt.NDArray[np.int_], Tuple[npt.NDArray[np.int_], bitarray]]:
-    ...
+) -> npt.NDArray[np.int_] | tuple[npt.NDArray[np.int_], bitarray]: ...
 
 
 def get_hyper_planes(
     amount: int = 2000, seed: int = 42, mask: bool = False
-) -> Union[npt.NDArray[np.int_], Tuple[npt.NDArray[np.int_], bitarray]]:
+) -> npt.NDArray[np.int_] | tuple[npt.NDArray[np.int_], bitarray]:
     """
     Construct a specified number of hyper planes with a set seed.
     We assume the following order: (day, month, year, zip2-code).
@@ -68,7 +66,7 @@ def get_hyper_planes(
 
 def encode(
     day: int, month: int, year: int, zip4_code: int
-) -> Tuple[int, int, int, int]:
+) -> tuple[int, int, int, int]:
     """
     Encodes day, month, year and zip2 to a Tuple.
 
@@ -93,7 +91,7 @@ def lsh_hash(
     year: int,
     zip4_code: int,
     hyper_planes: npt.NDArray[np.int_],
-    bit_mask: Optional[bitarray] = None,
+    bit_mask: bitarray | None = None,
 ) -> bitarray:
     """
     Computes a hash encoding for a given encoded input, given a collection of hyperplanes
@@ -114,7 +112,7 @@ def lsh_hash(
 
     comparison = np.less_equal(diff, [31, 6, 50, 0])
 
-    combined_hash = bitarray(comparison.astype(np.uint8).T.flat)
+    combined_hash = bitarray(comparison.astype(np.uint8).T.flat)  # type: ignore[arg-type]
     if bit_mask is not None:
         combined_hash ^= bit_mask
 
@@ -123,7 +121,7 @@ def lsh_hash(
 
 def weighted_hamming_distance(
     hash_1: bitarray, hash_2: bitarray
-) -> Tuple[float, Tuple[float, float, float, float]]:
+) -> tuple[float, tuple[float, float, float, float]]:
     """
     if score ~= 1 than we expect at most one element to be one-off
 

@@ -2,17 +2,22 @@
 Module contains Helper class (Henri) for performing secure set intersection
 """
 
+from __future__ import annotations
+
 import asyncio
 import itertools
 import math
 from functools import reduce
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union, cast
+from typing import Any, Callable, Set, Tuple, cast
 
 import numpy as np
 import numpy.typing as npt
 
+from tno.mpc.encryption_schemes.paillier import Paillier, PaillierCiphertext
+
 from .lsh import weighted_hamming_distance
 from .player import Player
+from .utils import randomize_ndarray
 
 # for better readability
 PlayerStr = str
@@ -26,18 +31,18 @@ class Helper(Player):
     def __init__(
         self,
         *args: Any,
-        lsh_threshold_function: Optional[
+        lsh_threshold_function: None | (
             Callable[
                 [
-                    List[Tuple[Tuple[int, int], Tuple[int, int]]],
-                    Dict[
-                        Tuple[Tuple[int, int], Tuple[int, int]],
-                        Tuple[float, Tuple[float, float, float, float]],
+                    list[tuple[tuple[int, int], tuple[int, int]]],
+                    dict[
+                        tuple[tuple[int, int], tuple[int, int]],
+                        tuple[float, tuple[float, float, float, float]],
                     ],
                 ],
                 bool,
             ]
-        ] = None,
+        ) = None,
         **kwargs: Any,
     ) -> None:
         r"""
@@ -62,19 +67,19 @@ class Helper(Player):
         )
 
         # To be filled
-        self._databases: Dict[PlayerStr, npt.NDArray[np.object_]] = {}
-        self._filtered_databases: Dict[PlayerStr, npt.NDArray[np.object_]] = {}
-        self._identifiers: Dict[PlayerStr, npt.NDArray[np.object_]] = {}
-        self._ph_identifiers: Dict[PlayerStr, npt.NDArray[np.object_]] = {}
-        self._lsh_identifiers: Dict[PlayerStr, npt.NDArray[np.object_]] = {}
-        self._intersection: Dict[PlayerStr, npt.NDArray[np.object_]] = {}
-        self._approx_intersection: Dict[PlayerStr, npt.NDArray[np.object_]] = {}
-        self._feature_columns: Optional[Dict[PlayerStr, List[int]]] = None
-        self._lookup_table: Dict[
-            Tuple[Tuple[int, int], Tuple[int, int]],
-            Tuple[float, Tuple[float, float, float, float]],
+        self._databases: dict[PlayerStr, npt.NDArray[np.object_]] = {}
+        self._filtered_databases: dict[PlayerStr, npt.NDArray[np.object_]] = {}
+        self._identifiers: dict[PlayerStr, npt.NDArray[np.object_]] = {}
+        self._ph_identifiers: dict[PlayerStr, npt.NDArray[np.object_]] = {}
+        self._lsh_identifiers: dict[PlayerStr, npt.NDArray[np.object_]] = {}
+        self._intersection: dict[PlayerStr, npt.NDArray[np.object_]] = {}
+        self._approx_intersection: dict[PlayerStr, npt.NDArray[np.object_]] = {}
+        self._feature_columns: dict[PlayerStr, list[int]] | None = None
+        self._lookup_table: dict[
+            tuple[tuple[int, int], tuple[int, int]],
+            tuple[float, tuple[float, float, float, float]],
         ] = {}
-        self.shares: Dict[PlayerStr, npt.NDArray[np.object_]] = {}
+        self.shares: dict[PlayerStr, npt.NDArray[np.object_]] = {}
 
     @property
     def intersection_size(self) -> int:
@@ -88,11 +93,25 @@ class Helper(Player):
             self._approx_intersection
         ) != len(self.data_parties):
             raise ValueError("Intersection size can not been determined (yet).")
-        return cast(
-            int,
+        return (
             self._intersection[self.data_parties[0]].shape[0]
-            + self._approx_intersection[self.data_parties[0]].shape[0],
+            + self._approx_intersection[self.data_parties[0]].shape[0]
         )
+
+    @property
+    def paillier_schemes(self) -> list[Paillier]:
+        """
+        Paillier schemes of all database owners.
+
+        :raise ValueError: Schemes have not yet been received.
+        :return: Paillier schemes of all database owners.
+        """
+        if len(self._databases) != len(self.data_parties):
+            raise ValueError("Not all Paillier schemes have yet been received.")
+        return [
+            cast(PaillierCiphertext, self._databases[party][0, 0]).scheme
+            for party in self.data_parties
+        ]
 
     async def combine_and_send_to_all(self) -> None:
         """
@@ -174,6 +193,7 @@ class Helper(Player):
         await self.send_data_parties()
         await self.store_data()
         await self.combine_and_send_to_all()
+        self._start_randomness_generation()
         if self.intersection_size > 0:
             await self.obtain_and_process_all_shares()
             await self.send_shares_to_all()
@@ -197,6 +217,8 @@ class Helper(Player):
         """
         Send the final encrypted shares to all parties.
         """
+        for shares_i in self.shares.values():
+            randomize_ndarray(shares_i)
         await asyncio.gather(
             *[
                 self.send_message(party, self.shares[party], "real_share")
@@ -223,12 +245,12 @@ class Helper(Player):
 
     @staticmethod
     def _intersection_ids(
-        x: Union[
-            npt.NDArray[np.object_],
-            Tuple[npt.NDArray[np.bool_], npt.NDArray[np.object_]],
-        ],
+        x: (
+            npt.NDArray[np.object_]
+            | tuple[npt.NDArray[np.bool_], npt.NDArray[np.object_]]
+        ),
         y: npt.NDArray[np.object_],
-    ) -> Tuple[npt.NDArray[np.bool_], npt.NDArray[np.object_]]:
+    ) -> tuple[npt.NDArray[np.object_], npt.NDArray[np.object_]]:
         """
         This method determines the intersection and intersection indices of either two 1D-numpy arrays. Or of the
         previous result of this method and a new 1D-numpy array. The result of this method is a tuple containing the
@@ -300,8 +322,8 @@ class Helper(Player):
         ph_identifiers = {
             party: self._ph_identifiers[party] for party in self._data_parties
         }
-        unique_identifiers: Dict[str, npt.NDArray[np.object_]] = {}
-        unique_indices: Dict[str, List[npt.NDArray[np.int_]]] = {}
+        unique_identifiers: dict[str, npt.NDArray[np.object_]] = {}
+        unique_indices: dict[str, list[npt.NDArray[np.int_]]] = {}
         for party, identifiers in ph_identifiers.items():
             unique_identifiers[party], unique_indices[party] = self._unique_indices(
                 identifiers
@@ -325,7 +347,7 @@ class Helper(Player):
             )
 
         # Constructs a set of possible phonetic overlaps to check LSH distance for
-        combinations: Set[Tuple[int, ...]] = set()
+        combinations: set[tuple[int, ...]] = set()
         match_count: npt.NDArray[np.int_] = np.zeros(len(self.data_parties), dtype=int)
         for indices in intersection_indices_complete:
             combinations.update(itertools.product(*indices))
@@ -334,11 +356,11 @@ class Helper(Player):
         # Annotate all pairs with index origin, e.g. (2, 3) -> ((0, 2), (1, 3))
         combinations_annotated = cast(
             Set[Tuple[Tuple[int, int], ...]],
-            set(tuple(enumerate(_)) for _ in combinations),
+            {tuple(enumerate(_)) for _ in combinations},
         )
 
         # Generate all possibile unique pairs of indices
-        unique_pairs: Set[Tuple[Tuple[int, int], Tuple[int, int]]] = set()
+        unique_pairs: set[tuple[tuple[int, int], tuple[int, int]]] = set()
         for combination in combinations_annotated:
             unique_pairs.update(itertools.combinations(combination, 2))
 
@@ -347,15 +369,15 @@ class Helper(Player):
             self._lookup_table[pair] = self.lsh_distance(pair[0], pair[1])
 
         # Sum distances (in case of more than two datasets)
-        distances: List[Tuple[Tuple[Tuple[int, int], ...], float]] = [
+        distances: list[tuple[tuple[tuple[int, int], ...], float]] = [
             (_, self.summed_lsh_distance(_)) for _ in combinations_annotated
         ]
 
         distances.sort(key=lambda _: _[1])
 
-        matches: List[Tuple[Tuple[int, int], ...]] = []
+        matches: list[tuple[tuple[int, int], ...]] = []
         max_matches = min(match_count)
-        selected: List[Set[int]] = [set() for _ in range(len(self.data_parties))]
+        selected: list[set[int]] = [set() for _ in range(len(self.data_parties))]
 
         # Pick best matches in a greedy way, closest first
         for distance in distances:
@@ -377,7 +399,7 @@ class Helper(Player):
     @staticmethod
     def _unique_indices(
         array: npt.NDArray[np.object_],
-    ) -> Tuple[npt.NDArray[np.object_], List[npt.NDArray[np.int_]]]:
+    ) -> tuple[npt.NDArray[np.object_], list[npt.NDArray[np.int_]]]:
         """
         Determine unique indices together with their locations (indices)
 
@@ -393,12 +415,22 @@ class Helper(Player):
 
         return unique_array, np.split(idx_sort, idx_start[1:])
 
+    def _start_randomness_generation(self) -> None:
+        """
+        Kicks off the randomness generation. This boosts performance.
+        In particular will this decrease the total runtime (as database owners can
+        already generate randomness before they need it).
+        """
+        for database, scheme in zip(self._databases.values(), self.paillier_schemes):
+            amount = self.intersection_size * database.shape[1]
+            scheme.boot_randomness_generation(amount)
+
     @staticmethod
     def default_threshold_function(
-        pairs: List[Tuple[Tuple[int, int], Tuple[int, int]]],
-        lookup_table: Dict[
-            Tuple[Tuple[int, int], Tuple[int, int]],
-            Tuple[float, Tuple[float, float, float, float]],
+        pairs: list[tuple[tuple[int, int], tuple[int, int]]],
+        lookup_table: dict[
+            tuple[tuple[int, int], tuple[int, int]],
+            tuple[float, tuple[float, float, float, float]],
         ],
     ) -> bool:
         """
@@ -416,8 +448,8 @@ class Helper(Player):
         )
 
     def lsh_distance(
-        self, index_1: Tuple[int, int], index_2: Tuple[int, int]
-    ) -> Tuple[float, Tuple[float, float, float, float]]:
+        self, index_1: tuple[int, int], index_2: tuple[int, int]
+    ) -> tuple[float, tuple[float, float, float, float]]:
         """
         Computes LSH distance between two indices. Every index is of the form (x, y) where
         x represents the party_index and y represents the index of the lsh hash.
@@ -434,7 +466,7 @@ class Helper(Player):
         )
         return distance, individual_distances
 
-    def summed_lsh_distance(self, combination: Tuple[Tuple[int, int], ...]) -> float:
+    def summed_lsh_distance(self, combination: tuple[tuple[int, int], ...]) -> float:
         """
         Computes the summed LSH distance of a set of pairs, returns "inf" if (at least)
         one of the distances exceeds a set threshold. As the number of pairs per combination
@@ -483,3 +515,10 @@ class Helper(Player):
             party, msg_id="encrypted_data"
         )
         self._logger.info(f"Stored encrypted data from {party}")
+
+    def shutdown_received_schemes(self) -> None:
+        """
+        Shut down all Paillier schemes that were received.
+        """
+        for scheme in self.paillier_schemes:
+            scheme.shut_down()

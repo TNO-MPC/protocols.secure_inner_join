@@ -2,7 +2,7 @@
 Validates proper functioning of LSH hashing
 """
 
-from typing import Tuple
+from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
@@ -57,7 +57,7 @@ test_cases = [
 
 
 @pytest.fixture(scope="module", name="hyper_planes_mask")
-def fixture_hyper_planes_mask() -> Tuple[npt.NDArray[np.int_], bitarray]:
+def fixture_hyper_planes_mask() -> tuple[npt.NDArray[np.int_], bitarray]:
     """
     Fixture of hyper planes with masking
 
@@ -68,10 +68,10 @@ def fixture_hyper_planes_mask() -> Tuple[npt.NDArray[np.int_], bitarray]:
 
 @pytest.mark.parametrize("value_pair_1, value_pair_2, _expected_outcome", test_cases)
 def test_masking(
-    value_pair_1: Tuple[int, int, int, int],
-    value_pair_2: Tuple[int, int, int, int],
-    _expected_outcome: Tuple[int, int, int, int],
-    hyper_planes_mask: Tuple[npt.NDArray[np.int_], bitarray],
+    value_pair_1: tuple[int, int, int, int],
+    value_pair_2: tuple[int, int, int, int],
+    _expected_outcome: tuple[int, int, int, int],
+    hyper_planes_mask: tuple[npt.NDArray[np.int_], bitarray],
 ) -> None:
     """
     Validates correctness of mask usage
@@ -98,10 +98,10 @@ def test_masking(
 
 @pytest.mark.parametrize("value_pair_1, value_pair_2, expected_outcome", test_cases)
 def test_distance(
-    value_pair_1: Tuple[int, int, int, int],
-    value_pair_2: Tuple[int, int, int, int],
-    expected_outcome: Tuple[int, int, int, int],
-    hyper_planes_mask: Tuple[npt.NDArray[np.int_], bitarray],
+    value_pair_1: tuple[int, int, int, int],
+    value_pair_2: tuple[int, int, int, int],
+    expected_outcome: tuple[int, int, int, int],
+    hyper_planes_mask: tuple[npt.NDArray[np.int_], bitarray],
 ) -> None:
     """
     Validates correctness of computed distance
